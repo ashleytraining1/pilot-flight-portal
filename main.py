@@ -247,12 +247,20 @@ if user_email:
             return f"✅ Valid until {expiry_date.strftime('%Y-%m-%d')}", "green"
 
         # Auto-IRT Logic: Look for 'IRT' in the 'DUTY' column of your logbook
-        irt_expiry = None
-        if not df_raw.empty and 'DUTY' in df_raw.columns:
-            irt_records = df_raw[df_raw['DUTY'].astype(str).str.contains('IRT', case=False, na=False)]
-            if not irt_records.empty:
-                last_irt_date = pd.to_datetime(irt_records['LOGBOOK DATE']).max()
-                irt_expiry = last_irt_date + pd.DateOffset(months=6)
+               # Auto-IRT Logic: Look for 'IRT' in the 'DUTY' column of your logbook
+irt_expiry = None  # This starts at the very edge (no spaces)
+
+if not df_raw.empty and 'DUTY' in df_raw.columns:
+    # Everything below is indented by 4 spaces
+    search_pattern = 'IRT|CAT I|CAT II'
+    
+    # This line MUST line up with search_pattern
+    irt_records = df_raw[df_raw['DUTY'].astype(str).str.contains(search_pattern, case=False, na=False)]
+    
+    if not irt_records.empty:
+        # This is inside a second "if", so it is indented by 8 spaces
+        last_irt_date = pd.to_datetime(irt_records['LOGBOOK DATE']).max()
+        irt_expiry = last_irt_date + pd.DateOffset(months=6)
 
         col_btn, col_tip = st.columns([0.2, 0.8])
         with col_btn:
@@ -572,4 +580,5 @@ if user_email:
 else:
     # This is for the very bottom of the script
     if not user_email:
+
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
