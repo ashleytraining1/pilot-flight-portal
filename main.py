@@ -6,6 +6,22 @@ from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from io import BytesIO
+import smtplib
+from email.message import EmailMessage
+
+def send_currency_alert(pilot_email, last_date, days_left):
+    try:
+        msg = EmailMessage()
+        msg.set_content(f"Captain, your last flight was on {last_date}. You have {days_left} days remaining to maintain your 21-day currency.")
+        msg['Subject'] = "✈️ Currency Reminder: 2 Days Remaining"
+        msg['From'] = st.secrets["emails"]["smtp_user"]
+        msg['To'] = pilot_email
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(st.secrets["emails"]["smtp_user"], st.secrets["emails"]["smtp_pass"])
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Email error: {e}")
 
 # Initialize df_raw as an empty dataframe so the 'if' check doesn't crash
 df_raw = pd.DataFrame()
@@ -158,6 +174,37 @@ if user_email:
         all_summaries = summary_table.all()
         user_summary_list = [r['fields'] for r in all_summaries if user_email in str(r['fields'].values()).lower()]
 
+    # --- 5. DATA PREP ---
+    raw_logs = logbook_table.all()  # Now it can see the table!
+    user_logs = [r['fields'] for r in raw_logs if user_email.lower() in str(r['fields'].values()).lower()]
+    df_raw = pd.DataFrame(user_logs)
+
+    if not df_raw.empty:
+        df_raw.columns = df_raw.columns.str.strip()
+        date_col = "LOGBOOK DATE"
+        
+        df_raw[date_col] = pd.to_datetime(df_raw[date_col], errors='coerce')
+        df_raw = df_raw.sort_values(by=date_col, ascending=False)
+        
+        # Currency Logic (Tested for your 4-day flight)
+        last_flight_date = df_raw[date_col].max().date()
+        days_since_flight = (date.today() - last_flight_date).days
+
+        if 19 <= days_since_flight < 21:
+            days_left = 21 - days_since_flight
+            st.warning(f"⚠️ **Currency Warning:** Last flight was {last_flight_date}. You have {days_left} days left.")
+            
+            if "email_sent" not in st.session_state:
+                send_currency_alert(user_email, last_flight_date, days_left)
+                st.session_state.email_sent = True
+
+        # 3. IRT / Recent History Logic
+        # Make sure this IRT logic is INSIDE the "if not df_raw.empty" block
+        six_months_ago = pd.Timestamp(date.today()) - pd.Timedelta(days=180)
+        recent_df = df_raw[df_raw[date_col] >= six_months_ago]
+    else:
+        recent_df = pd.DataFrame()
+
     if user_summary_list:
         u = user_summary_list[0]
         
@@ -212,27 +259,6 @@ if user_email:
             st.link_button("📤 Send Screenshot via WhatsApp", wa_url)
             
             st.stop()
-
-       # --- DATA PREP ---
-        raw_logs = logbook_table.all()
-        user_logs = [r['fields'] for r in raw_logs if user_email in str(r['fields'].values()).lower()]
-        df_raw = pd.DataFrame(user_logs)
-        
-        if not df_raw.empty:
-            df_raw.columns = df_raw.columns.str.strip()
-            date_col = "LOGBOOK DATE"
-            
-            # 1. Ensure column is datetime format
-            df_raw[date_col] = pd.to_datetime(df_raw[date_col], errors='coerce')
-            
-            # 2. INSERT THIS LINE HERE:
-            df_raw = df_raw.sort_values(by=date_col, ascending=False)
-            
-            six_months_ago = pd.Timestamp(date.today() - timedelta(days=180))
-            recent_df = df_raw[df_raw[date_col] >= six_months_ago]
-        else:
-            recent_df = pd.DataFrame()
-
 
 # --- 6. DASHBOARD ---
         st.header("Welcome back")
@@ -604,5 +630,6 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
 
 
