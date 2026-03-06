@@ -6,23 +6,70 @@ from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from io import BytesIO
+from pyairtable import Table
 import smtplib
 from email.message import EmailMessage
 
-def send_currency_alert(pilot_email, last_date, days_left):
+def send_currency_alert(pilot_email, expiry_date, days_left, alert_type):
     try:
+        # Determine the status for the subject line
+        status_label = "🚨 EXPIRED" if days_left < 0 else "⚠️ WARNING"
+        
         msg = EmailMessage()
-        msg.set_content(f"Captain, your last flight was on {last_date}. You have {days_left} days remaining to maintain your 21-day currency.")
-        msg['Subject'] = "✈️ Currency Reminder: 2 Days Remaining"
+        msg['Subject'] = f"{status_label}: {alert_type} Action Required"
         msg['From'] = st.secrets["emails"]["smtp_user"]
         msg['To'] = pilot_email
+
+        # Formatting the date clearly to avoid the "scrambled dates" issue
+        formatted_date = pd.to_datetime(expiry_date).strftime('%d %b %Y')
+
+        content = (f"Captain,\n\nYour {alert_type} status requires attention.\n\n"
+                   f"Current Status: {status_label}\n"
+                   f"Expiry Date: {formatted_date}\n"
+                   f"Days Remaining: {days_left}\n\n"
+                   f"Please update your records in the Pilot Portal.")
+        msg.set_content(content)
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(st.secrets["emails"]["smtp_user"], st.secrets["emails"]["smtp_pass"])
             server.send_message(msg)
+        return True
     except Exception as e:
-        print(f"Email error: {e}")
+        return False
 
+def update_airtable_date(field_name, session_key):
+    """Saves date to Airtable; creates a new row if pilot doesn't exist."""
+    new_date = st.session_state[session_key]
+    try:
+        # Search for the pilot's email
+        records = table_status.all(formula=f"{{Email}}='{user_email}'")
+        
+        if records:
+            # Pilot exists -> UPDATE the existing row
+            record_id = records[0]['id']
+            table_status.update(record_id, {field_name: str(new_date)})
+        else:
+            # Pilot is NEW -> CREATE a new row automatically
+            table_status.create({
+                "Email": user_email, 
+                field_name: str(new_date)
+            })
+            
+        # Update your local session so the 'Lock' works immediately
+        st.session_state.user_data[field_name] = str(new_date)
+        st.toast(f"✅ {field_name} synced to DB!")
+    except Exception as e:
+        st.error(f"Airtable Sync Error: {e}")
+
+def fetch_pilot_record(email):
+    """Pull the locked dates when the pilot logs in"""
+    try:
+        record = table_status.search('Email', email)
+        if record:
+            return record[0]['fields']
+    except:
+        pass
+    return {} # Return empty if not found
 # Initialize df_raw as an empty dataframe so the 'if' check doesn't crash
 df_raw = pd.DataFrame()
 # --- 1. SETUP & THEME ---
@@ -33,6 +80,7 @@ api_key = st.secrets["connections"]["airtable"]["api_key"]
 base_id = st.secrets["connections"]["airtable"]["base_id"]
 api = Api(api_key)
 
+table_status = Table(api_key, base_id, "Pilot_Status")
 table_monthly = api.table(base_id, "Monthly Stats") 
 df_stats = pd.DataFrame(table_monthly.all())
 
@@ -93,6 +141,17 @@ if user_email:
     if user_record:
         u_id = user_record['id']
         u_fields = user_record['fields']
+
+        if 'user_data' not in st.session_state:
+            fetched_data = fetch_pilot_record(user_email)
+            if fetched_data:
+                st.session_state.user_data = fetched_data
+            else:
+                # If the pilot is new to the Status table, create defaults
+                st.session_state.user_data = {
+                    'Last_CoC': str(date.today()), 
+                    'Last_Medical': str(date.today())
+                }
         
         # 2. Check the permanent 'Legal_Accepted' field 
         is_duly_signed = u_fields.get("Legal_Accepted", False)
@@ -180,26 +239,32 @@ if user_email:
     df_raw = pd.DataFrame(user_logs)
 
     if not df_raw.empty:
-        df_raw.columns = df_raw.columns.str.strip()
-        date_col = "LOGBOOK DATE"
-        
-        df_raw[date_col] = pd.to_datetime(df_raw[date_col], errors='coerce')
-        df_raw = df_raw.sort_values(by=date_col, ascending=False)
-        
-        # Currency Logic (Tested for your 4-day flight)
-        last_flight_date = df_raw[date_col].max().date()
-        days_since_flight = (date.today() - last_flight_date).days
+    df_raw.columns = df_raw.columns.str.strip()
+    date_col = "LOGBOOK DATE"
+    
+    df_raw[date_col] = pd.to_datetime(df_raw[date_col], errors='coerce')
+    df_raw = df_raw.sort_values(by=date_col, ascending=False)
+    
+    # 1. Define the variables safely inside the block
+    last_flight_date = df_raw[date_col].max().date()
+    days_since_flight = (date.today() - last_flight_date).days
 
-        if 19 <= days_since_flight < 21:
-            days_left = 21 - days_since_flight
+    if days_since_flight >= 19:
+        # Calculate days relative to the 21-day limit
+        days_left = 21 - days_since_flight 
+        
+        if days_since_flight < 21:
             st.warning(f"⚠️ **Currency Warning:** Last flight was {last_flight_date}. You have {days_left} days left.")
-            
-            if "email_sent" not in st.session_state:
-                send_currency_alert(user_email, last_flight_date, days_left)
-                st.session_state.email_sent = True
+        else:
+            st.error(f"🚨 **Currency Expired:** Last flight was {last_flight_date}. You are {abs(days_left)} days past currency.")
+
+        # Unique session key for Currency only
+        if "sent_curr" not in st.session_state:
+            # We use "Currency" as the label to keep it clean
+            send_currency_alert(user_email, last_flight_date, days_left, "Currency")
+            st.session_state.sent_curr = True
 
         # 3. IRT / Recent History Logic
-        # Make sure this IRT logic is INSIDE the "if not df_raw.empty" block
         six_months_ago = pd.Timestamp(date.today()) - pd.Timedelta(days=180)
         recent_df = df_raw[df_raw[date_col] >= six_months_ago]
     else:
@@ -262,17 +327,24 @@ if user_email:
 
 # --- 6. DASHBOARD ---
         st.header("Welcome back")
-
-        # --- NEW: READINESS CALCULATION LOGIC ---
-        def get_status_color(expiry_date):
-            if expiry_date is None: return "⚪ Not Found", "gray"
-            # Ensure we are comparing Timestamp to Timestamp
-            expiry_date = pd.Timestamp(expiry_date)
-            days_diff = (expiry_date - pd.Timestamp.now().normalize()).days
-            if days_diff < 0: return f"❌ Expired ({expiry_date.strftime('%Y-%m-%d')})", "red"
-            if days_diff <= 30: return f"⚠️ Warning: {days_diff} Days Left", "orange"
-            return f"✅ Valid until {expiry_date.strftime('%Y-%m-%d')}", "green"
-
+def get_status_color(expiry_date):
+    if expiry_date is None or pd.isna(expiry_date): 
+        # We return 3 values: Text, Color, and a large number for Days
+        return "⚪ Not Found", "gray", 999 
+    
+    expiry_date = pd.Timestamp(expiry_date)
+    days_diff = (expiry_date - pd.Timestamp.now().normalize()).days
+    
+    if days_diff < 0: 
+        # Return: Text, Color, Days
+        return f"❌ Expired ({expiry_date.strftime('%Y-%m-%d')})", "red", days_diff
+    if days_diff <= 30:
+        # Return: Text, Color, Days
+        return f"⚠️ Warning: {days_diff} Days Left", "orange", days_diff
+    
+    # Return: Text, Color, Days
+    return f"✅ Valid until {expiry_date.strftime('%Y-%m-%d')}", "green", days_diff
+      
         # Auto-IRT Logic: Look for 'IRT' in the 'DUTY' column of your logbook
                # Auto-IRT Logic: Look for 'IRT' in the 'DUTY' column of your logbook
 irt_expiry = None  # This starts at the very edge (no spaces)
@@ -306,43 +378,71 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
             st.subheader("🛡️ Pilot Readiness & Validity")
             r_col1, r_col2, r_col3 = st.columns(3)
             
-        with r_col1:
+       with r_col1:
             st.markdown("**CoFC (1 Year Validity)**")
             coc_ac = st.selectbox("Aircraft Type", ["C145A", "Y12 II"], key="coc_ac_input")
             
-            # This logic ensures the date doesn't reset to today
-            if 'coc_date' not in st.session_state:
-                st.session_state.coc_date = date.today()
+            # Pull from database logic
+            saved_coc = st.session_state.user_data.get('Last_CoC', str(date.today()))
             
-            last_coc = st.date_input("Date of Last CoC", value=st.session_state.coc_date, key="coc_sel_v3")
-            st.session_state.coc_date = last_coc
+            last_coc = st.date_input(
+                "Date of Last CoC", 
+                value=pd.to_datetime(saved_coc), 
+                key="coc_sel_v4", 
+                on_change=update_airtable_date, 
+                args=("Last_CoC", "coc_sel_v4")
+            )
             
             coc_exp = pd.Timestamp(last_coc) + pd.DateOffset(years=1)
-            status, color = get_status_color(coc_exp)
+            status, color, days = get_status_color(coc_exp)
             st.markdown(f":{color}[{status}]")
+
+            # Email Trigger Logic
+            if days <= 30:
+                alert_key = "sent_coc_exp" if days < 0 else "sent_coc_warn"
+                if alert_key not in st.session_state:
+                    if send_currency_alert(user_email, coc_exp.date(), days, "CoFC"):
+                        st.session_state[alert_key] = True
 
         with r_col2:
             st.markdown("**Medical (1 Year Validity)**")
             st.write("") 
             
-            # This logic ensures the date doesn't reset to today
-            if 'med_date' not in st.session_state:
-                st.session_state.med_date = date.today()
+            saved_med = st.session_state.user_data.get('Last_Medical', str(date.today()))
             
-            last_med = st.date_input("Date of Last Medical", value=st.session_state.med_date, key="med_sel_v3")
-            st.session_state.med_date = last_med
+            last_med = st.date_input(
+                "Date of Last Medical", 
+                value=pd.to_datetime(saved_med), 
+                key="med_sel_v4", 
+                on_change=update_airtable_date, 
+                args=("Last_Medical", "med_sel_v4")
+            )
             
             med_exp = pd.Timestamp(last_med) + pd.DateOffset(years=1)
-            status, color = get_status_color(med_exp)
+            status, color, days = get_status_color(med_exp)
             st.markdown(f":{color}[{status}]")
+
+            # Email Trigger Logic
+            if days <= 30:
+                alert_key = "sent_med_exp" if days < 0 else "sent_med_warn"
+                if alert_key not in st.session_state:
+                    if send_currency_alert(user_email, med_exp.date(), days, "Medical"):
+                        st.session_state[alert_key] = True
 
         with r_col3:
             st.markdown("**IRT (6 Months Validity)**")
             st.caption("*(Auto-detected from Logbook 'Duty')*")
             
-            # This follows your rule: looks for 'IRT' and 'CAT I & II'
-            status, color = get_status_color(irt_expiry)
+            # Detects 'IRT' and 'CAT I & II' from Airtable
+            status, color, days = get_status_color(irt_expiry)
             st.markdown(f"**Current Status:**\n\n:{color}[{status}]")
+
+            if days <= 30 and irt_expiry:
+                alert_key = "sent_irt_exp" if days < 0 else "sent_irt_warn"
+                if alert_key not in st.session_state:
+                    email_date = irt_expiry.date() if hasattr(irt_expiry, 'date') else irt_expiry
+                    if send_currency_alert(user_email, email_date, days, "IRT / CAT I & II"):
+                        st.session_state[alert_key] = True
 
         st.divider()
 
@@ -630,6 +730,7 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
 
 
 
