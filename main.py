@@ -238,7 +238,7 @@ if user_email:
     user_logs = [r['fields'] for r in raw_logs if user_email.lower() in str(r['fields'].values()).lower()]
     df_raw = pd.DataFrame(user_logs)
 
-    if not df_raw.empty:
+if not df_raw.empty:
     df_raw.columns = df_raw.columns.str.strip()
     date_col = "LOGBOOK DATE"
     
@@ -730,6 +730,7 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
 
 
 
