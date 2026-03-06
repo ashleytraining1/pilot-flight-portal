@@ -280,38 +280,59 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
             st.subheader("🛡️ Pilot Readiness & Validity")
             r_col1, r_col2, r_col3 = st.columns(3)
             
-            with r_col1:
-                st.markdown("**CoFC (1 Year Validity)**")
-                coc_ac = st.selectbox("Aircraft Type", ["C145A", "Y12 II"], key="coc_ac_input")
-                last_coc = st.date_input("Date of Last CoC", value=date.today())
-                coc_exp = pd.Timestamp(last_coc) + pd.DateOffset(years=1)
-                status, color = get_status_color(coc_exp)
-                st.markdown(f":{color}[{status}]")
-
-            with r_col2:
-                st.markdown("**Medical (1 Year Validity)**")
-                st.write("") # Alignment spacer
-                last_med = st.date_input("Date of Last Medical", value=date.today())
-                med_exp = pd.Timestamp(last_med) + pd.DateOffset(years=1)
-                status, color = get_status_color(med_exp)
-                st.markdown(f":{color}[{status}]")
-
-            with r_col3:
-                st.markdown("**IRT (6 Months Validity)**")
-                st.caption("*(Auto-detected from Logbook 'Duty')*")
-                status, color = get_status_color(irt_expiry)
-                st.markdown(f"**Current Status:**\n\n:{color}[{status}]")
-
-            st.divider()
+        with r_col1:
+            st.markdown("**CoFC (1 Year Validity)**")
+            coc_ac = st.selectbox("Aircraft Type", ["C145A", "Y12 II"], key="coc_ac_input")
             
-            # --- EXISTING CAREER TOTALS ---
-            st.subheader("📊 Career Totals")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Grand Total Hours", universal_formatter(safe_sum(df_raw, 'FLIGHT TIME Totals'), "Time"))
-            c2.metric("Total Landings", universal_formatter(safe_sum(df_raw, 'LDGS'), "Ldg"))
-            c3.metric("Total Instr. Flying", universal_formatter(safe_sum(df_raw, 'Total Instrument'), "Time"))
+            # This logic ensures the date doesn't reset to today
+            if 'coc_date' not in st.session_state:
+                st.session_state.coc_date = date.today()
             
-            st.divider()
+            last_coc = st.date_input("Date of Last CoC", value=st.session_state.coc_date, key="coc_sel_v3")
+            st.session_state.coc_date = last_coc
+            
+            coc_exp = pd.Timestamp(last_coc) + pd.DateOffset(years=1)
+            status, color = get_status_color(coc_exp)
+            st.markdown(f":{color}[{status}]")
+
+        with r_col2:
+            st.markdown("**Medical (1 Year Validity)**")
+            st.write("") 
+            
+            # This logic ensures the date doesn't reset to today
+            if 'med_date' not in st.session_state:
+                st.session_state.med_date = date.today()
+            
+            last_med = st.date_input("Date of Last Medical", value=st.session_state.med_date, key="med_sel_v3")
+            st.session_state.med_date = last_med
+            
+            med_exp = pd.Timestamp(last_med) + pd.DateOffset(years=1)
+            status, color = get_status_color(med_exp)
+            st.markdown(f":{color}[{status}]")
+
+        with r_col3:
+            st.markdown("**IRT (6 Months Validity)**")
+            st.caption("*(Auto-detected from Logbook 'Duty')*")
+            
+            # This follows your rule: looks for 'IRT' and 'CAT I & II'
+            status, color = get_status_color(irt_expiry)
+            st.markdown(f"**Current Status:**\n\n:{color}[{status}]")
+
+        st.divider()
+
+        # ---  CAREER TOTALS ---
+        st.subheader("📊 Career Totals")
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            st.metric("Grand Total Hours", universal_formatter(safe_sum(df_raw, 'FLIGHT TIME Totals'), 'FLIGHT TIME Totals'))
+        
+        with c2:
+            st.metric("Total Landings", universal_formatter(safe_sum(df_raw, 'LDGS'), 'LDGS'))
+        
+        with c3:
+            st.metric("Total Instr. Flying", universal_formatter(safe_sum(df_raw, 'Total Instrument'), 'Total Instrument'))
+        st.divider()
 
             # --- 7. MONTHLY NARRATIVE SEGMENT ---
         st.header("📅 Monthly Narrative & Summary")
@@ -583,4 +604,5 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
 
