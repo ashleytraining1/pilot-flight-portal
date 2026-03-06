@@ -7,7 +7,8 @@ from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from io import BytesIO
 
-
+# Initialize df_raw as an empty dataframe so the 'if' check doesn't crash
+df_raw = pd.DataFrame()
 # --- 1. SETUP & THEME ---
 st.set_page_config(page_title="Pilot Flight Portal", layout="wide")
 st.markdown("<style>.stDataFrame {font-size: 1.05rem;}</style>", unsafe_allow_html=True)
@@ -582,3 +583,4 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
