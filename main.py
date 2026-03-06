@@ -376,9 +376,10 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
         with tab1:
             # --- NEW: PILOT READINESS INTERFACE ---
             st.subheader("🛡️ Pilot Readiness & Validity")
-            r_col1, r_col2, r_col3 = st.columns(3)
-            
-       with r_col1:
+            # These columns must be inside your 'if user_record:' or 'if is_duly_signed:' block
+        r_col1, r_col2, r_col3 = st.columns(3)
+
+        with r_col1:
             st.markdown("**CoFC (1 Year Validity)**")
             coc_ac = st.selectbox("Aircraft Type", ["C145A", "Y12 II"], key="coc_ac_input")
             
@@ -433,7 +434,7 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
             st.markdown("**IRT (6 Months Validity)**")
             st.caption("*(Auto-detected from Logbook 'Duty')*")
             
-            # Detects 'IRT' and 'CAT I & II' from Airtable
+            # IRT / CAT I & II detection logic
             status, color, days = get_status_color(irt_expiry)
             st.markdown(f"**Current Status:**\n\n:{color}[{status}]")
 
@@ -443,7 +444,8 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                     email_date = irt_expiry.date() if hasattr(irt_expiry, 'date') else irt_expiry
                     if send_currency_alert(user_email, email_date, days, "IRT / CAT I & II"):
                         st.session_state[alert_key] = True
-
+            
+       
         st.divider()
 
         # ---  CAREER TOTALS ---
@@ -730,6 +732,7 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
+
 
 
 
