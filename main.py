@@ -569,6 +569,84 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                     
                     bio = BytesIO(); doc.save(bio)
                     st.download_button("Save Narrative", bio.getvalue(), f"Narrative_{search_string}.docx")
+                     # --- PART B: THE DETAILED DAILY BREAKDOWN ---
+            st.divider()
+            st.subheader(f"📖 Detailed Summary: {search_string}")
+            
+            if not df_raw.empty:
+                temp_df = df_raw.copy()
+                date_col = 'LOGBOOK DATE' if 'LOGBOOK DATE' in temp_df.columns else 'DATE'
+                temp_df[date_col] = pd.to_datetime(temp_df[date_col])
+                
+                # Filter for selected Month & Year
+                detailed_df = temp_df[
+                    (temp_df[date_col].dt.month_name() == sel_month) & 
+                    (temp_df[date_col].dt.year == int(sel_year))
+                ].copy()
+
+                if not detailed_df.empty:
+                    detailed_df = detailed_df.sort_values(date_col)
+                    
+                    # 1. Apply HH:MM formatting to ALL required time columns
+                    time_cols = [
+                        "FLIGHT TIME Totals", "PIC", "SIC", 
+                        "Day Total", "Night Total", "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM"
+                    ]
+                    for col in time_cols:
+                        if col in detailed_df.columns:
+                            detailed_df[col] = detailed_df[col].apply(lambda x: universal_formatter(x, col))
+                    
+                    detailed_df[date_col] = detailed_df[date_col].dt.strftime('%d %b %y')
+
+                    # 2. Define THE FULL COLUMN LIST (Captain, Co-Pilot, and all Totals)
+                    # Note: Using your exact requested names
+                    display_cols = [
+                        date_col, "AIRCRAFT", "ROUTE", "DUTY", 
+                        "CAPTAIN", "CO-PILOT", "Day Total", "Night Total",
+                        "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM", "LDGS", "FLIGHT TIME Totals"
+                    ]
+                    available_cols = [c for c in display_cols if c in detailed_df.columns]
+                    
+                    # 3. Display the Complete Table in Streamlit
+                    st.dataframe(detailed_df[available_cols], use_container_width=True, hide_index=True)
+
+                    # 4. DOWNLOADABLE DOCUMENT (Landscape for extra columns)
+                    if st.button("📄 Download Detailed Monthly Log"):
+                        doc = Document()
+                        section = doc.sections[0]
+                        section.orientation = 1 # Landscape
+                        new_width, new_height = section.page_height, section.page_width
+                        section.page_width, section.page_height = new_width, new_height
+                        section.left_margin = section.right_margin = Pt(20)
+
+                        doc.add_heading(f'DETAILED FLYING LOG - {search_string.upper()}', 0).alignment = 1
+                        
+                        table = doc.add_table(rows=1, cols=len(available_cols))
+                        table.style = 'Table Grid'
+                        
+                        # Header Formatting
+                        hdr_cells = table.rows[0].cells
+                        for i, col_name in enumerate(available_cols):
+                            hdr_cells[i].text = col_name
+                            run = hdr_cells[i].paragraphs[0].runs[0]
+                            run.font.bold = True
+                            run.font.size = Pt(8) # Small font to fit everything
+
+                        # Data Formatting
+                        for _, row in detailed_df[available_cols].iterrows():
+                            row_cells = table.add_row().cells
+                            for i, val in enumerate(row):
+                                row_cells[i].text = str(val) if pd.notna(val) else "0:00"
+                                row_cells[i].paragraphs[0].runs[0].font.size = Pt(8)
+
+                        doc_bio = BytesIO()
+                        doc.save(doc_bio)
+                        st.download_button(
+                            label="📥 Save Detailed Report (.docx)",
+                            data=doc_bio.getvalue(),
+                            file_name=f"Detailed_Log_{search_string}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
             else:
                 st.warning(f"No records for {search_string} found in the Stats Table.")
         else:
