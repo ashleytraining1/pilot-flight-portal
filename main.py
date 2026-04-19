@@ -589,8 +589,8 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                     
                     # 1. Apply HH:MM formatting to ALL required time columns
                     time_cols = [
-                        "FLIGHT TIME Totals", "PIC", "SIC", 
-                        "Day Total", "Night Total", "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM"
+                        "FLIGHT TIME Totals", "Field 2", "PIC", "SIC", 
+                        "Day Total", "Night Total", "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM", "I/F APPROACHES TYPE", "I/F APPROACHES NO."
                     ]
                     for col in time_cols:
                         if col in detailed_df.columns:
@@ -601,9 +601,9 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                     # 2. Define THE FULL COLUMN LIST (Captain, Co-Pilot, and all Totals)
                     # Note: Using your exact requested names
                     display_cols = [
-                        date_col, "AIRCRAFT", "ROUTE", "DUTY", 
+                        date_col, "AIRCRAFT", "Field 2", "ROUTE", "DUTY", 
                         "CAPTAIN", "CO-PILOT", "Day Total", "Night Total",
-                        "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM", "LDGS", "FLIGHT TIME Totals"
+                        "INSTRUMENT FLYING ACTUAL", "INSTRUMENT FLYING SIM", "LDGS", "I/F APPROACHES TYPE", "I/F APPROACHES NO.", "FLIGHT TIME Totals"
                     ]
                     available_cols = [c for c in display_cols if c in detailed_df.columns]
                     
