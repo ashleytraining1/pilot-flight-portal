@@ -569,7 +569,8 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                     
                     bio = BytesIO(); doc.save(bio)
                     st.download_button("Save Narrative", bio.getvalue(), f"Narrative_{search_string}.docx")
-                     # --- PART B: THE DETAILED DAILY BREAKDOWN ---
+
+                    # --- PART B: THE DETAILED DAILY BREAKDOWN ---
             st.divider()
             st.subheader(f"📖 Detailed Summary: {search_string}")
             
@@ -647,6 +648,7 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                             file_name=f"Detailed_Log_{search_string}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
+    
             else:
                 st.warning(f"No records for {search_string} found in the Stats Table.")
         else:
@@ -674,56 +676,130 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
 
             # --- TABLE: FLYING HOURS (GENERAL) ---
             doc.add_heading('Flying Hours (General):', level=1)
+            
+            # 1. REMOVED row g from this map so it doesn't get formatted as Time/Duration
             gen_map = [
                 ("a. First Pilot (Turbo prop)", "1st Pilot (TP)"),
                 ("b. Instrument Flying Actual (TP)", "Instr. Actual (TP)"),
                 ("c. Instrument Flying Simulated (TP)", "Instr. Sim (TP)"),
                 ("d. First Pilot (Piston)", "1st Pilot (Piston)"),
                 ("e. Instrument Flying Actual (Piston)", "Instr. Actual (Piston)"),
-                ("f. Instrument Flying Simulated (Piston)", "Instr. Sim (Piston)"),
-                ("g. No. of Instrument Approaches (Total)", "I/F APPROACHES NO.")
+                ("f. Instrument Flying Simulated (Piston)", "Instr. Sim (Piston)")
             ]
+            
             gt = doc.add_table(rows=1, cols=3); gt.style = 'Table Grid'
             gt.rows[0].cells[0].text = "Category"
-            gt.rows[0].cells[1].text = "TOTAL"
+            gt.rows[0].cells[1].text = "TOTAL FLYING HOURS"
             gt.rows[0].cells[2].text = "LAST 6 MONTHS"
 
+            # 2. This loop now safely formats rows a through f as Time durations
             for label, col in gen_map:
                 row = gt.add_row().cells
                 row[0].text = label
                 row[1].text = universal_formatter(safe_sum(df_raw, col), "Time")
                 row[2].text = universal_formatter(safe_sum(recent_df, col), "Time")
 
+            # 3. EXPLICITLY append Row G out here as a raw Integer count
+            row_g = gt.add_row().cells
+            row_g[0].text = "g. No. of Instrument Approaches (Total)"
+            row_g[1].text = str(int(pd.to_numeric(df_raw["I/F APPROACHES NO."], errors='coerce').fillna(0).sum()))
+            row_g[2].text = str(int(pd.to_numeric(recent_df["I/F APPROACHES NO."], errors='coerce').fillna(0).sum()))
+
             if form_type == "CAT":
+                # --- STEP 1: FORCE SANITIZE HEADERS ---
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                recent_df.columns = [str(c).strip() for c in recent_df.columns]
+
                 # --- CAT TABLE 1: FLYING TIMES (DAY & NIGHT) ---
                 doc.add_heading('1. Flying Times Breakdown', level=1)
-                ft = doc.add_table(rows=3, cols=7); ft.style = 'Table Grid'
+                ft = doc.add_table(rows=3, cols=7)
+                ft.style = 'Table Grid'
                 headers = ["Type", "Total", "Twin", "Sim", "Actual", "Let Down", "Ldg"]
-                for i, h in enumerate(headers): ft.rows[0].cells[i].text = h
+                for i, h in enumerate(headers): 
+                    ft.rows[0].cells[i].text = h
                 
-                for idx, label in enumerate(["DAY", "NIGHT"], 1):
-                    r = ft.rows[idx].cells
-                    suffix = " Day" if label == "DAY" else " Night"
-                    r[0].text = label
-                    r[1].text = universal_formatter(safe_sum(df_raw, f"{label.title()} Total"), "Time")
-                    r[2].text = universal_formatter(get_twin_logic(df_raw, f"{label.title()} Total"), "Time")
-                    r[3].text = universal_formatter(safe_sum(df_raw, f"Instr. Flying Sim{suffix}"), "Time")
-                    r[4].text = universal_formatter(safe_sum(df_raw, f"Instr. Flying Actual{suffix}"), "Time")
-                    r[5].text = str(int(safe_sum(recent_df, "I/F APPROACHES NO.")))
-                    r[6].text = str(int(safe_sum(recent_df, "Landings (6 Months)")))
+                # Reusable helper to safely sum columns without throwing KeyErrors
+                def get_safe_int_sum(df, col_name):
+                    if col_name in df.columns:
+                        return str(int(pd.to_numeric(df[col_name], errors='coerce').fillna(0).sum()))
+                    return "0"
+
+                # --- DAY ROW CONFIGURATION ---
+                r_day = ft.rows[1].cells
+                r_day[0].text = "DAY"
+                r_day[1].text = universal_formatter(safe_sum(df_raw, "Day Total"), "Time")
+                
+                # Twin Engine Filter for Day
+                twin_day_df = df_raw[df_raw['Engine Number'].astype(str).str.strip().str.upper() == "TWIN ENGINE"]
+                r_day[2].text = universal_formatter(safe_sum(twin_day_df, "Day Total"), "Time")
+                
+                r_day[3].text = universal_formatter(safe_sum(df_raw, "Instr. Flying Sim Day"), "Time")
+                r_day[4].text = universal_formatter(safe_sum(df_raw, "Instr. Flying Actual Day"), "Time")
+                r_day[5].text = get_safe_int_sum(df_raw, "I/F APPROACHES NO.") 
+                r_day[6].text = get_safe_int_sum(df_raw, "Day LDGS")
+
+                # --- NIGHT ROW CONFIGURATION ---
+                r_night = ft.rows[2].cells
+                r_night[0].text = "NIGHT"
+                r_night[1].text = universal_formatter(safe_sum(df_raw, "Night Total"), "Time")
+                
+                # Twin Engine Filter for Night
+                twin_night_df = df_raw[df_raw['Engine Number'].astype(str).str.strip().str.upper() == "TWIN ENGINE"]
+                r_night[2].text = universal_formatter(safe_sum(twin_night_df, "Night Total"), "Time")
+                
+                r_night[3].text = "0:00"  
+                r_night[4].text = universal_formatter(safe_sum(df_raw, "Instr. Flying Actual Night"), "Time")
+                r_night[5].text = "0"     
+                r_night[6].text = get_safe_int_sum(df_raw, "Night LDGS")
 
 
             elif form_type == "IRM":
+                # --- STEP 1: FORCE SANITIZE HEADERS ---
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                recent_df.columns = [str(c).strip() for c in recent_df.columns]
+
                 doc.add_heading(f'2. Flying Hours on Type: {ac_type}', level=1)
-                it = doc.add_table(rows=3, cols=3); it.style = 'Table Grid'
-                it.rows[0].cells[0].text = "Description"; it.rows[0].cells[1].text = "TOTAL"; it.rows[0].cells[2].text = "LAST 6 MONTHS"
-                target_col = f"Total {ac_type.replace(' ', '')}"
+                it = doc.add_table(rows=3, cols=3)
+                it.style = 'Table Grid'
+                it.rows[0].cells[0].text = "Description"
+                it.rows[0].cells[1].text = "TOTAL"
+                it.rows[0].cells[2].text = "LAST 6 MONTHS"
+
+                # --- STEP 2: DYNAMICALLY FILTER BY AIRCRAFT TYPE ---
+                # This creates a dataframe containing ONLY records for the selected aircraft (e.g., C145A or Y12 II)
+                # .str.upper() and .str.contains() ensure variations like 'Y12 II' or 'Y12' match cleanly
+                ac_clean = str(ac_type).strip().upper()
+                
+                if "Y12" in ac_clean:
+                    # Capture rows where AIRCRAFT contains "Y12"
+                    ac_mask_raw = df_raw['AIRCRAFT'].astype(str).str.upper().str.contains("Y12")
+                    ac_mask_recent = recent_df['AIRCRAFT'].astype(str).str.upper().str.contains("Y12")
+                else:
+                    # Default exact match for C145A or others
+                    ac_mask_raw = df_raw['AIRCRAFT'].astype(str).str.upper() == ac_clean
+                    ac_mask_recent = recent_df['AIRCRAFT'].astype(str).str.upper() == ac_clean
+
+                df_aircraft_raw = df_raw[ac_mask_raw]
+                df_aircraft_recent = recent_df[ac_mask_recent]
+
+                # Reusable helper to safely sum integer columns without throwing errors
+                def get_safe_int_sum(df, col_name):
+                    if col_name in df.columns:
+                        return str(int(pd.to_numeric(df[col_name], errors='coerce').fillna(0).sum()))
+                    return "0"
+
+                # --- STEP 3: POPULATE B. TOTAL 1ST PILOT HOURS VIA FILTER ---
+                # Target the column 'Total 1st Pilot' from our filtered aircraft dataframe
+                target_hours_col = "Total 1st Pilot"
+                
                 it.rows[1].cells[0].text = "b. Total 1st Pilot"
-                it.rows[1].cells[1].text = universal_formatter(safe_sum(df_raw, target_col), "Time")
-                it.rows[1].cells[2].text = universal_formatter(safe_sum(recent_df, target_col), "Time")
+                it.rows[1].cells[1].text = universal_formatter(safe_sum(df_aircraft_raw, target_hours_col), "Time")
+                it.rows[1].cells[2].text = universal_formatter(safe_sum(df_aircraft_recent, target_hours_col), "Time")
+                
+                # --- STEP 4: POPULATE C. NO. OF INSTRUMENT APPROACHES ---
                 it.rows[2].cells[0].text = "c. No. of Instrument Approaches"
-                it.rows[2].cells[1].text = str(int(safe_sum(df_raw, "I/F APPROACHES NO.")))
-                it.rows[2].cells[2].text = str(int(safe_sum(recent_df, "I/F APPROACHES NO.")))
+                it.rows[2].cells[1].text = get_safe_int_sum(df_aircraft_raw, "I/F APPROACHES NO.")
+                it.rows[2].cells[2].text = get_safe_int_sum(df_aircraft_recent, "I/F APPROACHES NO.")
 
             bio = BytesIO(); doc.save(bio)
             return bio.getvalue()
@@ -810,7 +886,6 @@ else:
     if not user_email:
 
         st.info("### 🛫 Please login in the sidebar to access your flight portal.")
-
 
 
 
