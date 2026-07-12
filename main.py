@@ -736,7 +736,8 @@ if not df_raw.empty and 'DUTY' in df_raw.columns:
                 r_day[3].text = universal_formatter(safe_sum(df_raw, "Instr. Flying Sim Day"), "Time")
                 r_day[4].text = universal_formatter(safe_sum(df_raw, "Instr. Flying Actual Day"), "Time")
                 r_day[5].text = get_safe_int_sum(df_raw, "I/F APPROACHES NO.") 
-                r_day[6].text = get_safe_int_sum(df_raw, "Day LDGS")
+               # Calculate day landings by subtracting night landings from total landings
+                r_day[6].text = str(int((df_raw["LDGS"].fillna(0) - df_raw["Night LDGS"].fillna(0)).sum()))
 
                 # --- NIGHT ROW CONFIGURATION ---
                 r_night = ft.rows[2].cells
